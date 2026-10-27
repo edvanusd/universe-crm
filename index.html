@@ -845,7 +845,7 @@ const API={
     let email=username.trim().toLowerCase();
     if(!email.includes('@')){
       const {data,error}=await this.sb.rpc('login_lookup',{p_username:email});
-      if(error)return {err:'Server tidak bisa dihubungi. Coba lagi sebentar.'};
+      if(error)return {err:/PGRST202|PGRST205|Could not find|schema cache|does not exist/i.test((error.code||'')+' '+(error.message||''))?'Database belum disiapkan. Jalankan supabase/schema.sql di SQL Editor Supabase.':'Server tidak bisa dihubungi. Coba lagi sebentar.'};
       const row=Array.isArray(data)?data[0]:data;
       if(!row||!row.email)return {err:'Username atau password salah.'};
       if(!row.active)return {err:'Akun ini tidak terdaftar sebagai karyawan aktif di Universe.'};
