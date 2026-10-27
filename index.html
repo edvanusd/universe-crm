@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Universe CRM: demo CRM berbahasa Indonesia dengan pipeline 3D P0–P7, quotation sampai BAST, dan dasbor bergaya Dashboard V18.">
+<meta name="description" content="Universe CRM: CRM berbahasa Indonesia dengan pipeline 3D P0–P7, quotation sampai BAST, dan data tersimpan di Supabase.">
 <link rel="icon" type="image/png" href="assets/mark_light.png">
 <title>Universe CRM</title>
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}</style>
@@ -139,6 +139,19 @@ p{margin:0}
 .me{display:flex;align-items:center;gap:8px;background:var(--surface);border-radius:999px;padding:4px 6px 4px 4px}
 .me select{border:0;background:none;font-size:13px;font-weight:600;color:var(--ink);max-width:220px;cursor:pointer;padding:4px 2px}
 .view{padding-block:22px 48px;padding-left:26px;padding-right:28px;display:flex;flex-direction:column;gap:18px;min-width:0}
+
+.sync.saving .dot{background:var(--warn);animation:pulse 1s ease-out infinite}
+.sync.err{color:var(--bad)}
+.sync.err .dot{background:var(--bad)}
+.me-name{font-size:13px;font-weight:600;padding:4px 10px 4px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+.boot{position:fixed;inset:0;z-index:95;display:grid;place-items:center;background:var(--bg);color:var(--ink-2);font-weight:600}
+.boot>div{display:flex;flex-direction:column;align-items:center;gap:16px}
+.boot img{width:190px}
+.sel.sm{height:32px;font-size:13px;padding:0 10px;background:var(--surface-2)}
+table.list tbody tr.noclick{cursor:default}
+.cred{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;background:var(--surface-2);border-radius:14px;padding:12px 14px;font-size:13px}
+.cred dt{color:var(--ink-3)}
+.cred dd{margin:0;font-family:var(--f-mono);font-weight:600;overflow-wrap:anywhere}
 
 /* ---------- motion ---------- */
 @keyframes rvIn{from{opacity:0;transform:translateY(12px) scale(.985);filter:blur(8px)}}
@@ -663,7 +676,7 @@ table.pivot tfoot td{font-weight:700;border-bottom:0;border-top:1px solid var(--
     <div class="rail-pill">
       <button class="rail-logo" data-nav="dashboard" aria-label="Universe CRM, ke Dasbor"><img src="assets/mark_dark.png" alt=""></button>
       <nav class="rail-nav" id="nav" aria-label="Menu utama"></nav>
-      <div class="rail-foot"><button class="rail-btn" id="railOut" data-act="logout" data-label="Keluar" aria-label="Keluar"></button></div>
+      <div class="rail-foot"><button class="rail-btn" id="railPass" data-act="myPass" data-label="Ganti password" aria-label="Ganti password" hidden></button><button class="rail-btn" id="railOut" data-act="logout" data-label="Keluar" aria-label="Keluar"></button></div>
     </div>
   </aside>
   <div class="main" id="main">
@@ -676,7 +689,7 @@ table.pivot tfoot td{font-weight:700;border-bottom:0;border-top:1px solid var(--
       <div class="tb-right">
         <span class="sample" title="Semua data di aplikasi ini adalah contoh dan kembali seperti semula saat halaman dimuat ulang">Data contoh</span>
         <span class="sync" id="sync"><span class="dot"></span><span class="txt">Web Apps tersinkron</span><span class="mono" id="syncAt"></span></span>
-        <label class="me"><span class="avatar" id="meAv"></span><select id="roleSel" aria-label="Ganti pengguna"></select></label>
+        <label class="me"><span class="avatar" id="meAv"></span><select id="roleSel" aria-label="Ganti pengguna"></select><span class="me-name" id="meName" hidden></span></label>
       </div>
     </header>
     <main class="view" id="view"></main>
@@ -710,11 +723,14 @@ table.pivot tfoot td{font-weight:700;border-bottom:0;border-top:1px solid var(--
   </div>
 </div>
 
+<div class="boot" id="boot" hidden><div><img class="lg-light" src="assets/logo_light.png" alt="Universe Solusi Digital"><img class="lg-dark" src="assets/logo_dark.png" alt="Universe Solusi Digital"><span id="bootTxt">Menghubungkan ke server…</span></div></div>
 <div id="modalRoot"></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <div id="ctip" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <script>
 'use strict';
 /* =========================================================
@@ -723,7 +739,9 @@ table.pivot tfoot td{font-weight:700;border-bottom:0;border-top:1px solid var(--
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clone=o=>JSON.parse(JSON.stringify(o));
-let _n=0; const uid=p=>p+(++_n).toString(36)+Math.random().toString(36).slice(2,6);
+const newId=()=>{try{return crypto.randomUUID()}catch(e){return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&3|8)).toString(16)})}};
+const uid=()=>newId();
+const nowISO=()=>new Date().toISOString();
 const NOW=new Date();
 const isoD=d=>{const z=new Date(d.getTime()-d.getTimezoneOffset()*6e4);return z.toISOString().slice(0,10)};
 const dAgo=n=>{const d=new Date(NOW);d.setDate(d.getDate()-n);return isoD(d)};
@@ -776,9 +794,164 @@ const IC={
  chevL:'<path d="M14.5 6l-6 6 6 6"/>',
  chevR:'<path d="M9.5 6l6 6-6 6"/>',
  bell:'<path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 004 0"/>',
+ idcard:'<rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16c.6-1.6 1.8-2.4 3.2-2.4s2.6.8 3.2 2.4M14.5 10h4M14.5 13.5h3"/>',
+ key:'<circle cx="8" cy="14" r="4"/><path d="M11 11l8-8M16 6l2.5 2.5M14 8l2 2"/>',
  cal:'<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/>',
 };
 const icon=(n,cls='')=>`<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]||''}</svg>`;
+
+/* =========================================================
+   Backend: Supabase (config.js). Without it the app runs as a demo.
+   ========================================================= */
+const CFG=window.UNIVERSE_CONFIG||{};
+const CLOUD=!!(CFG.supabaseUrl&&CFG.supabaseAnonKey&&window.supabase&&window.supabase.createClient);
+const ROLES=['Sales','Manager','Cluster','Admin'];
+const canManage=()=>CLOUD&&['Manager','Admin'].includes(S.user.role);
+const nz=v=>v===''||v===undefined?null:v;
+const num=v=>v==null||v===''?0:+v;
+const str=v=>v==null?'':String(v);
+const tsOf=v=>v?stampOf(new Date(v)):'';
+const MAP={
+  profile:{from:r=>({id:r.id,u:str(r.username),name:str(r.full_name),role:r.role,email:str(r.email),active:!!r.active})},
+  customer:{t:'customers',
+    from:r=>({id:r.id,partnerId:str(r.partner_id),name:str(r.name),type:r.type||'Company',address:str(r.address),phone:str(r.phone),mobile:str(r.mobile),email:str(r.email),tags:r.tags||[],npwp:str(r.npwp),provision:num(r.provision_pct),cod:num(r.cod_pct),top:num(r.top_pct),trading:num(r.trading_pct),contact:str(r.contact),job:str(r.job),ar:str(r.ar_account),ap:str(r.ap_account)}),
+    to:c=>({id:c.id,name:c.name,type:c.type||'Company',address:nz(c.address),phone:nz(c.phone),mobile:nz(c.mobile),email:nz(c.email),tags:c.tags||[],npwp:nz(c.npwp),provision_pct:num(c.provision),cod_pct:num(c.cod),top_pct:num(c.top),trading_pct:num(c.trading),contact:nz(c.contact),job:nz(c.job),ar_account:nz(c.ar),ap_account:nz(c.ap)})},
+  product:{t:'products',
+    from:r=>({id:r.id,code:str(r.code),name:str(r.name),category:str(r.category),uom:r.uom||'unit',cogs:num(r.cogs),desc:str(r.description)}),
+    to:p=>({id:p.id,code:p.code,name:p.name,category:nz(p.category),uom:p.uom||'unit',cogs:num(p.cogs),description:nz(p.desc)})},
+  lead:{t:'leads',
+    from:r=>({id:r.id,name:str(r.name),probability:num(r.probability),customerId:str(r.customer_id),company:str(r.company),address:str(r.address),website:str(r.website),language:r.language||'Bahasa Indonesia',contact:str(r.contact),email:str(r.email),emailCc:str(r.email_cc),job:str(r.job),phone:str(r.phone),mobile:str(r.mobile),salesperson:str(r.salesperson),team:str(r.team),priority:r.priority||'Normal',tags:r.tags||[],desc:str(r.description),campaign:str(r.campaign),medium:str(r.medium),source:str(r.source),referredBy:str(r.referred_by),status:r.status||'Baru',oppId:str(r.opp_id),createdAt:str(r.created_on)}),
+    to:l=>({id:l.id,name:l.name,probability:num(l.probability),customer_id:nz(l.customerId),company:nz(l.company),address:nz(l.address),website:nz(l.website),language:nz(l.language),contact:nz(l.contact),email:nz(l.email),email_cc:nz(l.emailCc),job:nz(l.job),phone:nz(l.phone),mobile:nz(l.mobile),salesperson:nz(l.salesperson),team:nz(l.team),priority:l.priority||'Normal',tags:l.tags||[],description:nz(l.desc),campaign:nz(l.campaign),medium:nz(l.medium),source:nz(l.source),referred_by:nz(l.referredBy),status:l.status||'Baru',opp_id:nz(l.oppId),created_on:l.createdAt||TODAY})},
+  opp:{t:'opportunities',
+    from:r=>({id:r.id,name:str(r.name),revenue:num(r.revenue),probability:num(r.probability),customerId:str(r.customer_id),email:str(r.email),phone:str(r.phone),salesperson:str(r.salesperson),team:str(r.team),closing:str(r.expected_closing),priority:r.priority||'Normal',tags:r.tags||[],desc:str(r.description),company:str(r.company),address:str(r.address),website:str(r.website),language:r.language||'Bahasa Indonesia',contact:str(r.contact),job:str(r.job),mobile:str(r.mobile),campaign:str(r.campaign),medium:str(r.medium),source:str(r.source),daysAssign:num(r.days_assign),daysClose:num(r.days_close),referredBy:str(r.referred_by),stage:num(r.stage),createdAt:str(r.created_on),daysToOpp:num(r.days_to_opp),leadId:str(r.lead_id)}),
+    to:o=>({id:o.id,name:o.name,revenue:num(o.revenue),probability:num(o.probability),customer_id:nz(o.customerId),email:nz(o.email),phone:nz(o.phone),salesperson:nz(o.salesperson),team:nz(o.team),expected_closing:nz(o.closing),priority:o.priority||'Normal',tags:o.tags||[],description:nz(o.desc),company:nz(o.company),address:nz(o.address),website:nz(o.website),language:nz(o.language),contact:nz(o.contact),job:nz(o.job),mobile:nz(o.mobile),campaign:nz(o.campaign),medium:nz(o.medium),source:nz(o.source),days_assign:num(o.daysAssign),days_close:num(o.daysClose),days_to_opp:num(o.daysToOpp),referred_by:nz(o.referredBy),stage:num(o.stage),lead_id:nz(o.leadId),created_on:o.createdAt||TODAY})},
+  order:{
+    from:(r,lines,logs)=>({id:r.id,number:str(r.number),customerId:str(r.customer_id),invoiceAddr:str(r.invoice_addr),deliveryAddr:str(r.delivery_addr),expiration:str(r.expiration),pricelist:str(r.pricelist),date:str(r.order_date),paymentTerm:str(r.payment_term),paymentMethod:str(r.payment_method),paymentType:str(r.payment_type),deliveryType:str(r.delivery_type),serviceType:str(r.service_type),salesperson:str(r.salesperson),team:str(r.team),source:str(r.source),customerRef:str(r.customer_ref),status:r.status,
+      giro:r.giro||null,approval:r.approval||null,sentCount:num(r.sent_count),delivered:!!r.delivered,oppId:r.opp_id||null,
+      bast:(()=>{const b=r.bast||{},P=x=>Object.assign(blankParty(),x||{});return {date:str(b.date),p1:P(b.p1),p2:P(b.p2),kuasa:P(b.kuasa)}})(),
+      lines:lines.sort((a,b)=>a.sort-b.sort).map(l=>({id:l.id,productId:str(l.product_id),desc:str(l.description),cogs:num(l.cogs),provision:num(l.provision_pct),cod:num(l.cod_pct),top:num(l.top_pct),trading:num(l.trading_pct),qty:num(l.qty),price:num(l.price),tax:num(l.tax_pct),disc:num(l.disc_pct),manual:!!l.manual_price})),
+      log:logs.sort((a,b)=>String(b.at).localeCompare(String(a.at))).map(g=>({id:g.id,ts:g.at,at:tsOf(g.at),by:str(g.by_name),text:str(g.text),status:g.status||undefined,sync:!!g.synced}))}),
+    payload:o=>({order:{id:o.id,customer_id:o.customerId,invoice_addr:nz(o.invoiceAddr),delivery_addr:nz(o.deliveryAddr),expiration:nz(o.expiration),pricelist:nz(o.pricelist),order_date:o.date||TODAY,payment_term:o.paymentTerm,payment_method:o.paymentMethod,payment_type:o.paymentType,delivery_type:o.deliveryType,service_type:o.serviceType,salesperson:nz(o.salesperson),team:nz(o.team),source:nz(o.source),customer_ref:nz(o.customerRef),status:o.status,giro:o.giro||null,bast:o.bast||{},approval:o.approval||null,sent_count:num(o.sentCount),delivered:!!o.delivered,opp_id:nz(o.oppId)},
+      lines:(o.lines||[]).map(l=>({id:l.id,product_id:l.productId,description:nz(l.desc),cogs:num(l.cogs),provision_pct:num(l.provision),cod_pct:num(l.cod),top_pct:num(l.top),trading_pct:num(l.trading),qty:num(l.qty),price:num(l.price),tax_pct:num(l.tax),disc_pct:num(l.disc),manual_price:!!l.manual})),
+      log:(o.log||[]).map(g=>({id:g.id||newId(),at:g.ts||nowISO(),by_name:g.by,text:g.text,status:g.status||null,synced:!!g.sync}))})},
+  activity:{from:r=>({id:r.id,ts:r.at,at:tsOf(r.at),by:str(r.by_name),text:str(r.text),ref:r.ref_model?{model:r.ref_model,id:r.ref_id}:null,sync:!!r.synced})},
+};
+const ALL_TABLES=['profiles','customers','products','leads','opportunities','orders','activity','so_counters'];
+const API={
+  sb:null,q:Promise.resolve(),pending:0,failed:false,chan:null,dirty:new Set(),reloadT:null,
+  init(){this.sb=window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey,{auth:{persistSession:true,autoRefreshToken:true}})},
+  async session(){const {data}=await this.sb.auth.getSession();return data&&data.session},
+  async login(username,pw){
+    let email=username.trim().toLowerCase();
+    if(!email.includes('@')){
+      const {data,error}=await this.sb.rpc('login_lookup',{p_username:email});
+      if(error)return {err:'Server tidak bisa dihubungi. Coba lagi sebentar.'};
+      const row=Array.isArray(data)?data[0]:data;
+      if(!row||!row.email)return {err:'Username atau password salah.'};
+      if(!row.active)return {err:'Akun ini tidak terdaftar sebagai karyawan aktif di Universe.'};
+      email=row.email;
+    }
+    const {data,error}=await this.sb.auth.signInWithPassword({email,password:pw});
+    if(error)return {err:/invalid|credential/i.test(error.message)?'Username atau password salah.':error.message};
+    return {user:data.user||(data.session&&data.session.user)};
+  },
+  async logout(){this.unsubscribe();try{await this.sb.auth.signOut()}catch(e){}},
+  async all(t){   // reads past PostgREST's 1000-row page size
+    const out=[];
+    for(let from=0;;from+=1000){const {data,error}=await this.sb.from(t).select('*').order(t==='so_counters'?'period':'id').range(from,from+999);if(error)throw error;out.push(...data);if(data.length<1000)break}
+    return out;
+  },
+  async load(tables){
+    const want=new Set(tables||ALL_TABLES),get=t=>want.has(t)?this.all(t):null,ord=want.has('orders');
+    const [profiles,customers,products,leads,opps,orders,lines,logs,counters,acts]=await Promise.all([
+      get('profiles'),get('customers'),get('products'),get('leads'),get('opportunities'),
+      ord?this.all('orders'):null,ord?this.all('order_lines'):null,ord?this.all('order_log'):null,get('so_counters'),
+      want.has('activity')?this.sb.from('activity').select('*').order('at',{ascending:false}).limit(200).then(r=>{if(r.error)throw r.error;return r.data}):null]);
+    if(profiles)S.profiles=profiles.map(MAP.profile.from);
+    if(customers)S.customers=customers.map(MAP.customer.from).sort((a,b)=>a.partnerId.localeCompare(b.partnerId));
+    if(products)S.products=products.map(MAP.product.from).sort((a,b)=>a.code.localeCompare(b.code));
+    if(leads)S.leads=leads.map(MAP.lead.from);
+    if(opps)S.opps=opps.map(MAP.opp.from);
+    if(orders){const by=(arr)=>arr.reduce((m,x)=>((m[x.order_id]=m[x.order_id]||[]).push(x),m),{});const L=by(lines),G=by(logs);S.orders=orders.map(r=>MAP.order.from(r,L[r.id]||[],G[r.id]||[]))}
+    if(counters){S.counters={};counters.forEach(c=>{S.counters[c.period]=c.last_no})}
+    if(acts)S.activity=acts.map(MAP.activity.from);
+    S.lastSync=new Date();
+  },
+  enqueue(label,fn){
+    this.pending++;setSync();
+    this.q=this.q.then(fn).then(()=>{this.failed=false;S.lastSync=new Date()}).catch(e=>this.fail(e,label)).finally(()=>{this.pending--;setSync()});
+    return this.q;
+  },
+  fail(e,label){
+    this.failed=true;
+    const m=(e&&(e.message||e.error_description||e.hint))||String(e);
+    toast(`Gagal menyimpan ${label}: ${m}`,'bad');
+    this.scheduleReload(null,true);
+  },
+  save(model,rec){
+    if(!CLOUD||!rec)return;
+    const snap=clone(rec),label=model==='order'?(snap.number||'dokumen'):`“${snap.name||snap.code||''}”`;
+    this.enqueue(label,async()=>{
+      if(model==='order'){
+        const {data,error}=await this.sb.rpc('save_order',{p:MAP.order.payload(snap)});if(error)throw error;
+        if(data&&data.number&&data.number!==snap.number)patchRec('order',snap.id,{number:data.number});
+      }else{
+        const m=MAP[model],{data,error}=await this.sb.from(m.t).upsert(m.to(snap)).select();if(error)throw error;
+        if(model==='customer'&&data&&data[0]&&data[0].partner_id!==snap.partnerId)patchRec('customer',snap.id,{partnerId:data[0].partner_id});
+      }
+    });
+  },
+  activity(e){
+    if(!CLOUD)return;
+    const row={id:e.id,at:e.ts,by_name:e.by,text:e.text,ref_model:e.ref?e.ref.model:null,ref_id:e.ref?e.ref.id:null,synced:!!e.sync};
+    this.enqueue('aktivitas',async()=>{const {error}=await this.sb.from('activity').insert(row);if(error)throw error});
+  },
+  async rpc(name,args){const {data,error}=await this.sb.rpc(name,args);if(error)throw error;return data},
+  subscribe(){
+    if(this.chan)return;
+    try{this.chan=this.sb.channel('crm-changes').on('postgres_changes',{event:'*',schema:'public'},p=>this.scheduleReload(p.table)).subscribe()}catch(e){this.chan=null}
+  },
+  unsubscribe(){if(this.chan){try{this.sb.removeChannel(this.chan)}catch(e){}this.chan=null}},
+  scheduleReload(table,all){
+    const fam={order_lines:'orders',order_log:'orders'};
+    if(all)ALL_TABLES.forEach(t=>this.dirty.add(t));else if(table)this.dirty.add(fam[table]||table);
+    clearTimeout(this.reloadT);this.reloadT=setTimeout(()=>this.reload(),700);
+  },
+  async reload(){
+    if(this.pending){this.reloadT=setTimeout(()=>this.reload(),500);return}
+    const ts=[...this.dirty];this.dirty.clear();if(!ts.length)return;
+    if(ts.includes('orders'))ts.push('so_counters');
+    try{await this.load(ts)}catch(e){this.failed=true;setSync();return}
+    refreshAfterReload();
+  },
+};
+function setSync(){
+  const el=$('#sync');if(!el)return;
+  el.classList.toggle('saving',API.pending>0);el.classList.toggle('err',!API.pending&&API.failed);
+  el.querySelector('.txt').textContent=!CLOUD?'Web Apps tersinkron':API.pending?'Menyimpan…':API.failed?'Gagal menyimpan':'Tersimpan';
+  $('#syncAt').textContent=S.lastSync?S.lastSync.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}):'';
+}
+const typing=()=>document.activeElement&&document.activeElement.matches('#view input,#view textarea,#view select');
+function patchRec(model,id,patch){
+  const rec=S[MODEL[model].coll].find(x=>x.id===id);if(rec)Object.assign(rec,patch);
+  if(S.form&&S.form.model===model&&S.form.id===id){const o=JSON.parse(S.form.orig);Object.assign(o,patch);S.form.orig=JSON.stringify(o);Object.assign(S.form.draft,patch)}
+  if(!$('#modalRoot').innerHTML&&!typing())render();
+}
+function refreshAfterReload(){
+  if(!S.user||$('#app').hidden)return;
+  if($('#modalRoot').innerHTML||typing()){renderShell();return}
+  if(S.form){
+    if(S.form.id&&!isDirty()){const rec=S[MODEL[S.form.model].coll].find(x=>x.id===S.form.id);if(rec){S.form.draft=clone(rec);S.form.orig=JSON.stringify(S.form.draft)}}
+    else{renderShell();return}
+  }
+  render();
+}
+function people(){return CLOUD?S.profiles.filter(p=>p.active).sort((a,b)=>(a.role==='Sales'?0:1)-(b.role==='Sales'?0:1)||a.name.localeCompare(b.name)).map(p=>({name:p.name,role:p.role})):STAFF}
+function salesNames(){
+  if(!CLOUD)return SALES;
+  const act=S.profiles.filter(p=>p.active),s=act.filter(p=>p.role==='Sales').map(p=>p.name);
+  return s.length?s:act.map(p=>p.name);
+}
 
 /* =========================================================
    Reference data (from the PRD)
@@ -825,7 +998,7 @@ const COMPANY='PT Universe Solusi Digital';
 /* =========================================================
    State + sample data
    ========================================================= */
-const S={customers:[],products:[],leads:[],opps:[],orders:[],counters:{},user:USERS[0],view:'dashboard',form:null,q:{},soFilter:'',oppShow3d:true,rep:{g:'stage',m:'revenue'},activity:[],lastSync:null,flashOpp:null,enter:true,statMode:'w',animChart:false,actTab:'all',cal:null};
+const S={customers:[],products:[],leads:[],opps:[],orders:[],counters:{},user:USERS[0],view:'dashboard',form:null,q:{},soFilter:'',oppShow3d:true,rep:{g:'stage',m:'revenue'},activity:[],lastSync:null,flashOpp:null,enter:true,statMode:'w',animChart:false,actTab:'all',cal:null,profiles:[]};
 
 const custById=id=>S.customers.find(c=>c.id===id);
 const prodById=id=>S.products.find(p=>p.id===id);
@@ -954,7 +1127,7 @@ function seed(){
   S.orders.forEach(o=>seedLog(o));
   // activity feed
   const recent=[...S.orders].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
-  S.activity=recent.map(o=>({at:o.log[0].at,by:o.log[0].by,text:`${o.number} · ${o.log[0].text}`,ref:{model:'order',id:o.id},sync:true}));
+  S.activity=recent.map(o=>({id:newId(),ts:o.log[0].ts,at:o.log[0].at,by:o.log[0].by,text:`${o.number} · ${o.log[0].text}`,ref:{model:'order',id:o.id},sync:true}));
   S.lastSync=new Date(NOW.getTime()-18*6e4);
 }
 function seedLog(o){
@@ -966,8 +1139,8 @@ function seedLog(o){
   const entries=[];
   for(let i=0;i<=upto;i++){
     const d=toDate(addDays(o.date,Math.min(span-0,Math.round(i*span/(upto+2)))));d.setHours(9+((i*3)%8),(i*17)%60);
-    entries.push({at:stampOf(d),by:i>=2&&top&&i<=3?'Finance':o.salesperson,text:STATUS_TEXT[path[i]](o),status:path[i],sync:i>0});
-    if(path[i]==='Sales Order'&&o.delivered){const d2=new Date(d);d2.setDate(d2.getDate()+2);entries.push({at:stampOf(d2),by:'Gudang',text:'Pengiriman barang selesai (DO divalidasi). Tab BAST terbuka.',sync:false})}
+    entries.push({id:newId(),ts:d.toISOString(),at:stampOf(d),by:i>=2&&top&&i<=3?'Finance':o.salesperson,text:STATUS_TEXT[path[i]](o),status:path[i],sync:i>0});
+    if(path[i]==='Sales Order'&&o.delivered){const d2=new Date(d);d2.setDate(d2.getDate()+2);entries.push({id:newId(),ts:d2.toISOString(),at:stampOf(d2),by:'Gudang',text:'Pengiriman barang selesai (DO divalidasi). Tab BAST terbuka.',sync:false})}
   }
   o.log=entries.reverse();
 }
@@ -1034,15 +1207,17 @@ const NAV=[
  {v:'products',label:'Produk',icon:'box',count:()=>S.products.length},
  {sep:1},
  {v:'report',label:'Laporan CRM',icon:'chart'},
+ {sep:1,mgr:1},
+ {v:'employees',label:'Karyawan',icon:'idcard',mgr:1},
 ];
-const VIEW_LABEL={dashboard:'Dasbor',leads:'Leads',opps:'Peluang',orders:'Quotation & Sales Order',customers:'Pelanggan',products:'Produk',report:'Laporan CRM'};
+const VIEW_LABEL={employees:'Karyawan',dashboard:'Dasbor',leads:'Leads',opps:'Peluang',orders:'Quotation & Sales Order',customers:'Pelanggan',products:'Produk',report:'Laporan CRM'};
 const MODEL={lead:{coll:'leads',list:'leads',kind:'Lead'},opp:{coll:'opps',list:'opps',kind:'Peluang'},order:{coll:'orders',list:'orders',kind:'Quotation / Sales Order'},customer:{coll:'customers',list:'customers',kind:'Pelanggan'},product:{coll:'products',list:'products',kind:'Produk'}};
-const HASH={dasbor:'dashboard',leads:'leads',peluang:'opps',penjualan:'orders',pelanggan:'customers',produk:'products',laporan:'report'};
+const HASH={karyawan:'employees',dasbor:'dashboard',leads:'leads',peluang:'opps',penjualan:'orders',pelanggan:'customers',produk:'products',laporan:'report'};
 
 let navBuilt=false;
 function buildNav(){
-  $('#nav').innerHTML=NAV.map(n=>n.sep?'<span class="rail-sep" aria-hidden="true"></span>':`<button class="rail-btn" data-nav="${n.v}" aria-label="${esc(n.label)}">${icon(n.icon)}</button>`).join('')+'<span class="rail-ind" id="railInd" aria-hidden="true"></span>';
-  $('#railOut').innerHTML=icon('logout');
+  $('#nav').innerHTML=NAV.filter(n=>!n.mgr||canManage()).map(n=>n.sep?'<span class="rail-sep" aria-hidden="true"></span>':`<button class="rail-btn" data-nav="${n.v}" aria-label="${esc(n.label)}">${icon(n.icon)}</button>`).join('')+'<span class="rail-ind" id="railInd" aria-hidden="true"></span>';
+  $('#railOut').innerHTML=icon('logout');$('#railPass').innerHTML=icon('key');$('#railPass').hidden=!CLOUD;
   navBuilt=true;
 }
 function positionInd(){
@@ -1056,9 +1231,11 @@ function renderShell(){
   if(!navBuilt)buildNav();
   $$('#nav [data-nav]').forEach(b=>{const n=NAV.find(x=>x.v===b.dataset.nav);b.dataset.label=n.label+(n.count?` · ${n.count()}`:'');if(b.dataset.nav===S.view)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});
   positionInd();
-  $('#roleSel').innerHTML=USERS.filter(u=>u.active).map(u=>`<option value="${u.u}" ${u.u===S.user.u?'selected':''}>${esc(u.name)} — ${u.role}</option>`).join('');
+  $('#roleSel').hidden=CLOUD;$('#meName').hidden=!CLOUD;$('.sample').hidden=CLOUD;
+  if(CLOUD)$('#meName').textContent=`${S.user.name} · ${S.user.role}`;
+  else $('#roleSel').innerHTML=USERS.filter(u=>u.active).map(u=>`<option value="${u.u}" ${u.u===S.user.u?'selected':''}>${esc(u.name)} — ${u.role}</option>`).join('');
   $('#meAv').textContent=initials(S.user.name);
-  $('#syncAt').textContent=S.lastSync?S.lastSync.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}):'';
+  setSync();
   const f=S.form;
   let crumbs=`<button data-nav="dashboard">CRM</button><span>/</span>`;
   if(f){const list=MODEL[f.model].list;crumbs+=`<button data-nav="${list}">${VIEW_LABEL[list]}</button><span>/</span><b>${esc(formTitle())}</b>`}
@@ -1230,7 +1407,7 @@ VIEWS.dashboard=()=>{
     <div class="row3">
       <section class="card rv lift" aria-label="Tim Sales">
         <div class="card-h"><h3>Tim Sales</h3><button class="circ" data-act="teamReport" aria-label="Laporan per salesperson">${icon('chart')}</button></div>
-        <div class="team">${STAFF.map((p,i)=>{const mine=S.opps.filter(o=>o.salesperson===p.name);const cap=p.role==='Sales'?`${mine.length} peluang`:p.role;const [fn,...ln]=p.name.split(' ');
+        <div class="team">${people().slice(0,9).map((p,i)=>{const mine=S.opps.filter(o=>o.salesperson===p.name);const cap=p.role==='Sales'?`${mine.length} peluang`:p.role;const [fn,...ln]=p.name.split(' ');
           return `<button class="mem" data-act="teamReport" data-tip="${esc(p.name)} · ${p.role}${p.role==='Sales'?` · ${mine.length} peluang · ${fmtRpS(sum(mine,o=>o.revenue))}`:''}"><span class="face c-${PASTELS[i%5]}">${initials(p.name)}</span><b>${esc(fn)}<br>${esc(ln.join(' '))}</b><small>${esc(cap)}</small></button>`}).join('')}</div>
       </section>
       <section class="card fx rv lift" aria-label="Expected Revenue">
@@ -1397,6 +1574,71 @@ VIEWS.report=()=>{
   <tfoot><tr><td>Total</td><td>${S.opps.length}</td><td>${fmtRp(sum(S.opps,o=>o.revenue))}</td><td>${fmtRp(sum(S.opps,o=>o.revenue*o.probability/100))}</td><td>${fmtNum(sum(S.opps,o=>o.revenue)?sum(S.opps,o=>o.revenue*o.probability/100)/sum(S.opps,o=>o.revenue)*100:0,1)}%</td></tr></tfoot></table></div>`;
 };
 
+VIEWS.employees=()=>{
+  const can=canManage(),rows=[...S.profiles].sort((a,b)=>(b.active-a.active)||a.name.localeCompare(b.name));
+  return `<div class="page-head rv"><div><p class="eyebrow">Pengaturan</p><h1>${words('Karyawan')}</h1><p class="sub">Akun login tim. Hanya karyawan aktif yang bisa masuk ke CRM.</p></div>
+    <div class="actions">${can?`<button class="btn btn-primary" data-act="empNew">${icon('plus')}Karyawan baru</button>`:''}</div></div>
+  <div class="table-wrap rv"><table class="list"><thead><tr><th>Nama</th><th>Username</th><th>Peran</th><th>Email</th><th>Status</th><th></th></tr></thead><tbody>
+  ${rows.map(p=>{const self=p.id===S.user.id;return `<tr class="noclick"><td class="strong">${esc(p.name)}${self?' <span class="tag">Anda</span>':''}</td><td class="mono">${esc(p.u)}</td>
+    <td>${can&&!self?`<select class="sel sm" data-emprole="${p.id}" aria-label="Peran ${esc(p.name)}">${ROLES.map(r=>`<option ${r===p.role?'selected':''}>${r}</option>`).join('')}</select>`:esc(p.role)}</td>
+    <td>${esc(p.email)}</td><td><span class="pill ${p.active?'st-ok':'st-conv'}">${p.active?'Aktif':'Nonaktif'}</span></td>
+    <td class="r">${can?`<div class="actions" style="justify-content:flex-end">${self?'':`<button class="btn btn-sm" data-act="empToggle" data-id="${p.id}">${p.active?'Nonaktifkan':'Aktifkan'}</button>`}<button class="btn btn-sm" data-act="empPass" data-id="${p.id}">Ganti password</button></div>`:''}</td></tr>`}).join('')||'<tr><td colspan="6" class="empty">Belum ada karyawan.</td></tr>'}
+  </tbody></table></div>`;
+};
+const genPass=()=>{const a='abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';let p='';const r=new Uint32Array(10);crypto.getRandomValues(r);r.forEach(x=>p+=a[x%a.length]);return p};
+async function empUpdate(id,patch,msg){
+  try{const {error}=await API.sb.from('profiles').update(patch).eq('id',id);if(error)throw error;await API.load(['profiles']);toast(msg,'good')}
+  catch(e){toast(e.message||String(e),'bad');await API.load(['profiles']).catch(()=>{})}
+  render();
+}
+const actEmpToggle=el=>{const p=S.profiles.find(x=>x.id===el.dataset.id);if(p)empUpdate(p.id,{active:!p.active},p.active?`${p.name} dinonaktifkan dan tidak bisa login.`:`${p.name} diaktifkan kembali.`)};
+function actEmpNew(){
+  modal(`<form id="empForm" novalidate><div class="modal-h"><h3>Karyawan baru</h3><button type="button" class="icon-btn" data-act="mClose" aria-label="Tutup">${icon('x')}</button></div>
+    <div class="modal-b">
+      <div class="field"><label class="req" for="e_name">Nama lengkap</label><div class="ctl"><input class="inp" id="e_name" autocomplete="off"></div></div>
+      <div class="field"><label class="req" for="e_user">Username</label><div class="ctl"><input class="inp" id="e_user" autocomplete="off" placeholder="huruf kecil, mis. rina"></div></div>
+      <div class="field"><label class="req" for="e_role">Peran</label><div class="ctl"><select class="inp" id="e_role">${ROLES.map(r=>`<option>${r}</option>`).join('')}</select></div></div>
+      <div class="field"><label class="req" for="e_email">Email</label><div class="ctl"><input class="inp" id="e_email" type="email" autocomplete="off"></div></div>
+      <div class="field"><label class="req" for="e_pass">Password awal</label><div class="ctl"><input class="inp mono" id="e_pass" value="${genPass()}" autocomplete="off"><p class="hint">Minimal 8 karakter. Berikan ke karyawan, lalu minta diganti setelah login.</p></div></div>
+      <p class="login-err" id="e_err" role="alert"></p></div>
+    <div class="modal-f"><button type="button" class="btn" data-act="mClose">Batal</button><button class="btn btn-primary" type="submit">Buat akun</button></div></form>`);
+  $('#e_name').focus();
+  $('#e_name').addEventListener('input',e=>{const u=$('#e_user');if(!u.dataset.touched)u.value=e.target.value.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9._-]/g,'')});
+  $('#e_user').addEventListener('input',e=>{e.target.dataset.touched='1'});
+  $('#empForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const v={p_full_name:$('#e_name').value.trim(),p_username:$('#e_user').value.trim().toLowerCase(),p_role:$('#e_role').value,p_email:$('#e_email').value.trim(),p_password:$('#e_pass').value};
+    if(!v.p_full_name||!v.p_username||!v.p_email||!v.p_password){$('#e_err').textContent='Semua kolom wajib diisi.';return}
+    const btn=e.submitter||$('#empForm button[type="submit"]');btn.disabled=true;
+    try{
+      await API.rpc('create_employee',v);await API.load(['profiles']);
+      modal(`<div class="modal-h"><h3>Akun dibuat</h3><button type="button" class="icon-btn" data-act="mClose" aria-label="Tutup">${icon('x')}</button></div>
+        <div class="modal-b"><p>Berikan data login ini ke <b>${esc(v.p_full_name)}</b>:</p><dl class="cred"><dt>Username</dt><dd>${esc(v.p_username)}</dd><dt>Password</dt><dd>${esc(v.p_password)}</dd></dl></div>
+        <div class="modal-f"><button class="btn btn-primary" data-act="mClose">Selesai</button></div>`);
+      render();
+    }catch(err){$('#e_err').textContent=err.message||String(err);btn.disabled=false}
+  });
+}
+function passModal(id,name){
+  const self=id===S.user.id;
+  modal(`<form id="pwForm" novalidate><div class="modal-h"><h3>Ganti password${self?'':` · ${esc(name)}`}</h3><button type="button" class="icon-btn" data-act="mClose" aria-label="Tutup">${icon('x')}</button></div>
+    <div class="modal-b">
+      <div class="field"><label class="req" for="pw1">Password baru</label><div class="ctl"><input class="inp" id="pw1" type="password" autocomplete="new-password"></div></div>
+      <div class="field"><label class="req" for="pw2">Ulangi password</label><div class="ctl"><input class="inp" id="pw2" type="password" autocomplete="new-password"><p class="hint">Minimal 8 karakter.</p></div></div>
+      <p class="login-err" id="pw_err" role="alert"></p></div>
+    <div class="modal-f"><button type="button" class="btn" data-act="mClose">Batal</button><button class="btn btn-primary" type="submit">Simpan password</button></div></form>`);
+  $('#pw1').focus();
+  $('#pwForm').addEventListener('submit',async e=>{
+    e.preventDefault();const a=$('#pw1').value,b=$('#pw2').value;
+    if(a.length<8){$('#pw_err').textContent='Password minimal 8 karakter.';return}
+    if(a!==b){$('#pw_err').textContent='Kedua password tidak sama.';return}
+    try{await API.rpc('set_employee_password',{p_id:id,p_password:a});closeModal();toast(self?'Password Anda sudah diganti.':`Password ${name} sudah diganti.`,'good')}
+    catch(err){$('#pw_err').textContent=err.message||String(err)}
+  });
+}
+const actEmpPass=el=>{const p=S.profiles.find(x=>x.id===el.dataset.id);if(p)passModal(p.id,p.name)};
+const actMyPass=()=>{if(CLOUD)passModal(S.user.id,S.user.name)};
+
 /* =========================================================
    Forms
    ========================================================= */
@@ -1417,7 +1659,7 @@ function field(def,d,ro){
   let ctl;
   if(ro||def.ro) ctl=`<div class="ro" id="${id}">${displayVal(def,v)}</div>`;
   else switch(def.t){
-    case 'select':{const os=opt(typeof def.opts==='function'?def.opts():def.opts);ctl=`<select id="${id}" class="inp ${err?'err':''}" data-f="${def.k}" data-rer>${def.req&&!isEmpty(v)?'':'<option value="">—</option>'}${os.map(o=>`<option value="${esc(o.v)}" ${String(o.v)===String(v??'')?'selected':''} ${o.dis?'disabled':''}>${esc(o.l)}</option>`).join('')}</select>`;break}
+    case 'select':{const os=opt(typeof def.opts==='function'?def.opts():def.opts);if(!isEmpty(v)&&!os.some(o=>String(o.v)===String(v)))os.unshift({v,l:String(v)});ctl=`<select id="${id}" class="inp ${err?'err':''}" data-f="${def.k}" data-rer>${def.req&&!isEmpty(v)?'':'<option value="">—</option>'}${os.map(o=>`<option value="${esc(o.v)}" ${String(o.v)===String(v??'')?'selected':''} ${o.dis?'disabled':''}>${esc(o.l)}</option>`).join('')}</select>`;break}
     case 'textarea':ctl=`<textarea id="${id}" class="inp ${err?'err':''}" data-f="${def.k}" placeholder="${esc(def.ph||'')}">${esc(v)}</textarea>`;break;
     case 'tags':ctl=`<input id="${id}" class="inp" data-f="${def.k}" data-type="tags" value="${esc((v||[]).join(', '))}" placeholder="Pisahkan dengan koma">`;break;
     case 'num':case 'pct':case 'money':ctl=`<input id="${id}" class="inp ${err?'err':''}" type="number" inputmode="decimal" step="${def.t==='money'?1000:def.t==='pct'?0.25:0.5}" min="0" ${def.t==='pct'&&def.k==='probability'?'max="100"':''} data-f="${def.k}" data-type="num" value="${esc(v)}">`;break;
@@ -1456,7 +1698,7 @@ const LEAD_HEAD=[
   {k:'job',l:'Jabatan'},
   {k:'phone',l:'Telepon',t:'tel'},
   {k:'mobile',l:'Mobile',t:'tel'},
-  {k:'salesperson',l:'Salesperson',t:'select',opts:SALES},
+  {k:'salesperson',l:'Salesperson',t:'select',opts:salesNames},
   {k:'team',l:'Sales Team',t:'select',opts:TEAMS},
   {k:'priority',l:'Prioritas',t:'select',opts:PRIORITIES},
   {k:'tags',l:'Tags',t:'tags'},
@@ -1485,7 +1727,7 @@ const OPP_HEAD_L=[
   {k:'phone',l:'Telepon',t:'tel'},
 ];
 const OPP_HEAD_R=[
-  {k:'salesperson',l:'Salesperson',t:'select',opts:SALES},
+  {k:'salesperson',l:'Salesperson',t:'select',opts:salesNames},
   {k:'team',l:'Sales Team',t:'select',opts:TEAMS},
   {k:'closing',l:'Expected Closing',t:'date'},
   {k:'priority',l:'Prioritas',t:'select',opts:PRIORITIES},
@@ -1634,7 +1876,7 @@ function linesTab(o,locked,c,t){
 function totalsHTML(t){return `<dt>Subtotal (DPP)</dt><dd>${fmtRp(t.un)}</dd><dt>PPN</dt><dd>${fmtRp(t.tax)}</dd><dt class="grand">Total</dt><dd class="grand">${fmtRp(t.total)}</dd><dt class="gm">Estimasi margin kotor</dt><dd class="gm">${fmtRp(t.margin)}${t.un?' ('+fmtNum(t.margin/t.un*100,1)+'%)':''}</dd>`}
 function otherTab(o,locked){
   const g=o.giro;
-  return `<div class="fgrid">${group('Penjualan',[{k:'salesperson',l:'Salesperson',t:'select',opts:SALES},{k:'team',l:'Sales Team',t:'select',opts:TEAMS}],o,locked)}
+  return `<div class="fgrid">${group('Penjualan',[{k:'salesperson',l:'Salesperson',t:'select',opts:salesNames},{k:'team',l:'Sales Team',t:'select',opts:TEAMS}],o,locked)}
     ${group('Referensi',[{k:'source',l:'Source',hint:'Nama sistem front end yang membuat transaksi'},{k:'customerRef',l:'Customer Reference',hint:'No. transaksi dari sistem front end'}],o,locked)}</div>
     ${g?`<div class="fgroup" style="margin-top:8px"><div class="fgroup-t">Giro</div><div class="fgrid">
       <div>${fields([{k:'no',l:'Nomor Giro'},{k:'bank',l:'Bank'}],g,true)}</div><div>${fields([{k:'due',l:'Jatuh Tempo',t:'date'},{k:'amount',l:'Nominal',t:'money'},{k:'state',l:'Status Giro'}],g,true)}</div></div></div>`:''}`;
@@ -1652,11 +1894,11 @@ function bastTab(o){
    Form plumbing
    ========================================================= */
 const BLANK={
-  lead:()=>({name:'',probability:10,customerId:'',company:'',address:'',website:'',language:'Bahasa Indonesia',contact:'',email:'',emailCc:'',job:'',phone:'',mobile:'',salesperson:S.user.role==='Sales'?S.user.name:SALES[0],team:TEAMS[0],priority:'Normal',tags:[],desc:'',campaign:'',medium:'',source:'',referredBy:'',status:'Baru',createdAt:TODAY}),
-  opp:()=>({name:'',revenue:0,probability:10,customerId:'',email:'',phone:'',salesperson:S.user.role==='Sales'?S.user.name:SALES[0],team:TEAMS[0],closing:addDays(TODAY,30),priority:'Normal',tags:[],desc:'',company:'',address:'',website:'',language:'Bahasa Indonesia',contact:'',job:'',mobile:'',campaign:'',medium:'',source:'',daysAssign:0,daysClose:0,referredBy:'',stage:0,createdAt:TODAY,daysToOpp:0}),
+  lead:()=>({name:'',probability:10,customerId:'',company:'',address:'',website:'',language:'Bahasa Indonesia',contact:'',email:'',emailCc:'',job:'',phone:'',mobile:'',salesperson:S.user.role==='Sales'?S.user.name:(salesNames()[0]||''),team:TEAMS[0],priority:'Normal',tags:[],desc:'',campaign:'',medium:'',source:'',referredBy:'',status:'Baru',createdAt:TODAY}),
+  opp:()=>({name:'',revenue:0,probability:10,customerId:'',email:'',phone:'',salesperson:S.user.role==='Sales'?S.user.name:(salesNames()[0]||''),team:TEAMS[0],closing:addDays(TODAY,30),priority:'Normal',tags:[],desc:'',company:'',address:'',website:'',language:'Bahasa Indonesia',contact:'',job:'',mobile:'',campaign:'',medium:'',source:'',daysAssign:0,daysClose:0,referredBy:'',stage:0,createdAt:TODAY,daysToOpp:0}),
   customer:()=>({name:'',type:'Company',address:'',phone:'',mobile:'',email:'',ar:AR_ACC[0],ap:AP_ACC[0],tags:[],npwp:'',partnerId:'',provision:1,cod:2,top:3,trading:5,contact:'',job:''}),
   product:()=>({name:'',code:'',category:'',uom:'batang',cogs:0,desc:''}),
-  order:()=>({number:'',customerId:'',invoiceAddr:'',deliveryAddr:'',expiration:addDays(TODAY,14),pricelist:PRICELISTS[0],date:TODAY,paymentTerm:'',paymentMethod:'',paymentType:'',deliveryType:'Supplier delivery',serviceType:'Normal',salesperson:S.user.role==='Sales'?S.user.name:SALES[0],team:TEAMS[0],source:'CRM',customerRef:'',status:'Quotation',lines:[],bast:blankBast(),giro:null,sentCount:0,approval:null,delivered:false,log:[],oppId:null}),
+  order:()=>({number:'',customerId:'',invoiceAddr:'',deliveryAddr:'',expiration:addDays(TODAY,14),pricelist:PRICELISTS[0],date:TODAY,paymentTerm:'',paymentMethod:'',paymentType:'',deliveryType:'Supplier delivery',serviceType:'Normal',salesperson:S.user.role==='Sales'?S.user.name:(salesNames()[0]||''),team:TEAMS[0],source:'CRM',customerRef:'',status:'Quotation',lines:[],bast:blankBast(),giro:null,sentCount:0,approval:null,delivered:false,log:[],oppId:null}),
 };
 const DEFAULT_TAB={lead:'notes',opp:'notes',customer:'pricing',product:'',order:'lines'};
 function openRec(model,id,preset){
@@ -1701,23 +1943,25 @@ function save(quiet){
   else{
     const rec=clone(f.draft);rec.id=uid(f.model.slice(0,2));
     if(f.model==='customer')rec.partnerId='CUST-'+String(S.customers.length+1).padStart(4,'0');
-    if(f.model==='order'){rec.number=nextSeq(rec.date||TODAY);rec.log=[{at:stamp(),by:S.user.name,text:'Quotation dibuat',status:'Quotation',sync:false}]}
+    if(f.model==='order'){rec.number=nextSeq(rec.date||TODAY);rec.log=[{id:newId(),ts:nowISO(),at:stamp(),by:S.user.name,text:'Quotation dibuat',status:'Quotation',sync:false}]}
     coll.push(rec);f.id=rec.id;f.draft=clone(rec);
   }
   f.orig=JSON.stringify(f.draft);
+  API.save(f.model,S[MODEL[f.model].coll].find(x=>x.id===f.id));
   if(!quiet){toast('Tersimpan.','good');render()}
   return true;
 }
-function commitOrder(){const f=S.form;const i=S.orders.findIndex(x=>x.id===f.id);S.orders[i]=clone(f.draft);f.orig=JSON.stringify(f.draft)}
+function commitOrder(){const f=S.form;const i=S.orders.findIndex(x=>x.id===f.id);S.orders[i]=clone(f.draft);f.orig=JSON.stringify(f.draft);API.save('order',S.orders[i])}
+function addActivity(a){const e={id:newId(),ts:nowISO(),at:stamp(),by:S.user.name,sync:false,...a};S.activity.unshift(e);API.activity(e);return e}
 function setStatus(o,st,text,by){
   o.status=st;
-  const e={at:stamp(),by:by||S.user.name,text,status:st,sync:true};
+  const e={id:newId(),ts:nowISO(),at:stamp(),by:by||S.user.name,text,status:st,sync:true};
   o.log.unshift(e);
-  S.lastSync=new Date();
-  S.activity.unshift({at:e.at,by:e.by,text:`${o.number} · ${text}`,ref:{model:'order',id:S.form?S.form.id:o.id},sync:true});
+  if(!CLOUD)S.lastSync=new Date();
+  addActivity({by:e.by,text:`${o.number} · ${text}`,ref:{model:'order',id:S.form?S.form.id:o.id},sync:true});
   const sy=$('#sync');sy.classList.remove('pulse');void sy.offsetWidth;sy.classList.add('pulse');
 }
-function logNote(o,text,sync){o.log.unshift({at:stamp(),by:S.user.name,text,sync:!!sync})}
+function logNote(o,text,sync){o.log.unshift({id:newId(),ts:nowISO(),at:stamp(),by:S.user.name,text,sync:!!sync})}
 
 /* field hooks */
 function onFieldChange(key){
@@ -1751,6 +1995,7 @@ function liveTotals(){
    Actions
    ========================================================= */
 const ACT={};
+ACT.empToggle=actEmpToggle;ACT.empNew=actEmpNew;ACT.empPass=actEmpPass;ACT.myPass=actMyPass;
 ACT.new=el=>guard(()=>openRec(el.dataset.model));
 ACT.save=()=>save();
 ACT.discard=()=>{const f=S.form;if(!f.id){S.form=null;render();return}openRec(f.model,f.id);toast('Perubahan dibuang.','info')};
@@ -1763,7 +2008,10 @@ ACT.statMode=el=>{if(S.statMode===el.dataset.k)return;S.statMode=el.dataset.k;S.
 ACT.calNav=el=>{const n=+el.dataset.k*7;S.cal.start=addDays(S.cal.start,n);S.cal.sel=addDays(S.cal.sel,n);render()};
 ACT.calDay=el=>{S.cal.sel=el.dataset.k;render()};
 ACT.actTab=el=>{S.actTab=el.dataset.k;render()};
-ACT.logout=()=>guard(()=>showLogin());
+ACT.logout=()=>guard(async()=>{
+  if(CLOUD){await API.logout();S.customers=[];S.products=[];S.leads=[];S.opps=[];S.orders=[];S.activity=[];S.profiles=[];S.cal=null}
+  showLogin();
+});
 ACT.mClose=()=>closeModal();
 ACT.gDiscard=()=>{closeModal();const fn=S.pending;S.pending=null;S.form=null;fn&&fn()};
 ACT.gSave=()=>{closeModal();const fn=S.pending;S.pending=null;if(save(true)){S.form=null;fn&&fn()}else{}};
@@ -1773,12 +2021,13 @@ function moveOpp(id,stage){
   const o=oppById(id);if(!o||o.stage===stage)return;
   const from=o.stage;o.stage=stage;
   if(stage>=4&&!o.daysClose)o.daysClose=Math.max(1,daysBetween(o.createdAt,TODAY));
-  S.activity.unshift({at:stamp(),by:S.user.name,text:`${o.name}: ${STAGES[from].code} → ${STAGES[stage].code} ${STAGES[stage].short}`,ref:{model:'opp',id},sync:false});
+  API.save('opp',o);
+  addActivity({text:`${o.name}: ${STAGES[from].code} → ${STAGES[stage].code} ${STAGES[stage].short}`,ref:{model:'opp',id},sync:false});
   S.flashOpp=id;
   toast(`${o.name} pindah ke ${STAGES[stage].code} · ${STAGES[stage].short}.`,'good');
 }
 ACT.oppNext=el=>{const o=oppById(el.dataset.id);if(o&&o.stage<7){moveOpp(o.id,o.stage+1);render()}};
-ACT.setStage=el=>{const d=S.form.draft;const s=+el.dataset.k;if(d.stage===s)return;d.stage=s;if(S.form.id){const o=oppById(S.form.id);const from=o.stage;if(save(true)){S.activity.unshift({at:stamp(),by:S.user.name,text:`${o.name}: ${STAGES[from].code} → ${STAGES[s].code} ${STAGES[s].short}`,ref:{model:'opp',id:o.id},sync:false});toast(`Tahap diubah ke ${STAGES[s].code} · ${STAGES[s].short}.`,'good')}}render()};
+ACT.setStage=el=>{const d=S.form.draft;const s=+el.dataset.k;if(d.stage===s)return;d.stage=s;if(S.form.id){const o=oppById(S.form.id);const from=o.stage;if(save(true)){addActivity({text:`${o.name}: ${STAGES[from].code} → ${STAGES[s].code} ${STAGES[s].short}`,ref:{model:'opp',id:o.id},sync:false});toast(`Tahap diubah ke ${STAGES[s].code} · ${STAGES[s].short}.`,'good')}}render()};
 ACT.oppQuote=()=>{
   if(!save(true))return;
   const o=S.form.draft;
@@ -1794,7 +2043,8 @@ ACT.convertLead=()=>{
   const opp=Object.assign(BLANK.opp(),{id:uid('op'),name:l.name,probability:Math.max(10,+l.probability||10),customerId:l.customerId,email:l.email,phone:l.phone||l.mobile,salesperson:l.salesperson,team:l.team,priority:l.priority,tags:l.tags,desc:l.desc,company:l.company||(c&&c.type==='Company'?c.name:''),address:l.address,website:l.website,language:l.language,contact:l.contact,job:l.job,mobile:l.mobile,campaign:l.campaign,medium:l.medium,source:l.source,referredBy:l.referredBy,stage:0,createdAt:TODAY,daysToOpp:Math.max(0,daysBetween(l.createdAt,TODAY)),daysAssign:0.5,leadId:id});
   S.opps.push(opp);
   const rec=S.leads.find(x=>x.id===id);rec.status='Dikonversi';rec.oppId=opp.id;
-  S.activity.unshift({at:stamp(),by:S.user.name,text:`Lead “${l.name}” dikonversi ke P0 · Call`,ref:{model:'opp',id:opp.id},sync:false});
+  API.save('opp',opp);API.save('lead',rec);
+  addActivity({text:`Lead “${l.name}” dikonversi ke P0 · Call`,ref:{model:'opp',id:opp.id},sync:false});
   S.form=null;S.view='opps';S.oppShow3d=true;S.flashOpp=opp.id;S.enter=true;
   render();scrollTop();
   toast('Lead dikonversi. Peluang baru masuk ke P0 · Call.','good');
@@ -1959,6 +2209,7 @@ view.addEventListener('change',e=>{
   const t=e.target;
   if(t.matches('[data-sofilter]')){S.soFilter=t.value;render();return}
   if(t.matches('[data-repg]')){S.rep.g=t.value;render();return}
+  if(t.matches('[data-emprole]')){empUpdate(t.dataset.emprole,{role:t.value},`Peran diubah menjadi ${t.value}.`);return}
   if(!S.form)return;
   if(t.tagName==='SELECT'&&t.dataset.f){setP(S.form.draft,t.dataset.f,t.value);onFieldChange(t.dataset.f);render();const n=$('#'+t.id);n&&n.focus();return}
   if(t.tagName==='SELECT'&&t.dataset.line){
@@ -2209,15 +2460,23 @@ function showLogin(){
   closeModal();S.form=null;
   $('#app').hidden=true;$('#login').hidden=false;
   $('#demoAcc').innerHTML=USERS.map(u=>`<li><span><code>${u.u}</code> · ${esc(u.name)} (${u.role})${u.active?'':' · <span style="color:var(--bad)">nonaktif</span>'}</span><button class="btn btn-sm" type="button" data-fill="${u.u}">Isi</button></li>`).join('');
+  $('.demo-acc').hidden=CLOUD;
   $('#lgUser').value='';$('#lgPass').value='';$('#lgErr').textContent='';
   if(!LOGO)LOGO=new CubeScene({stars:true,dist:13.2});LOGO.mount($('#loginArt'));
   P3D.unmount();HERO.unmount();
   $('#lgUser').focus();
 }
 $('#demoAcc').addEventListener('click',e=>{const b=e.target.closest('[data-fill]');if(!b)return;$('#lgUser').value=b.dataset.fill;$('#lgPass').value=DEMO_PASS;$('#lgErr').textContent=''});
-$('#loginForm').addEventListener('submit',e=>{
+$('#loginForm').addEventListener('submit',async e=>{
   e.preventDefault();
   const un=$('#lgUser').value.trim().toLowerCase(),pw=$('#lgPass').value;
+  if(CLOUD){
+    if(!un||!pw){$('#lgErr').textContent='Isi username dan password.';return}
+    const btn=$('#loginForm button[type="submit"]');btn.disabled=true;$('#lgErr').textContent='';
+    const r=await API.login(un,pw);
+    if(r.err){$('#lgErr').textContent=r.err;btn.disabled=false;return}
+    await enterCloud(r.user.id);btn.disabled=false;return;
+  }
   const u=USERS.find(x=>x.u===un);
   if(!un||!pw){$('#lgErr').textContent='Isi username dan password.';return}
   if(!u||pw!==DEMO_PASS){$('#lgErr').textContent='Username atau password salah.';return}
@@ -2229,15 +2488,34 @@ $('#loginForm').addEventListener('submit',e=>{
 /* =========================================================
    Boot
    ========================================================= */
-seed();
+const showBoot=t=>{$('#bootTxt').textContent=t;$('#boot').hidden=false};
+const hideBoot=()=>{$('#boot').hidden=true};
+async function enterCloud(uid){
+  showBoot('Memuat data…');
+  try{await API.load()}catch(e){hideBoot();showLogin();$('#lgErr').textContent='Gagal memuat data: '+(e.message||e);return}
+  const me=S.profiles.find(p=>p.id===uid);
+  if(!me||!me.active){await API.logout();hideBoot();showLogin();$('#lgErr').textContent='Akun ini tidak terdaftar sebagai karyawan aktif di Universe.';return}
+  S.user={id:me.id,u:me.u,name:me.name,role:me.role,active:true};
+  navBuilt=false;S.cal=null;S.form=null;
+  LOGO&&LOGO.unmount();hideBoot();$('#login').hidden=true;$('#app').hidden=false;
+  const h=(location.hash||'').slice(1);S.view=HASH[h]&&(HASH[h]!=='employees'||canManage())?HASH[h]:'dashboard';
+  S.enter=true;render();scrollTop();
+  API.subscribe();
+}
 const P3D=new Pipeline3D();
 const HERO=new CubeScene({dist:12.5,amp:0.32});
 P3D.onOpen=id=>guard(()=>openRec('opp',id));
 const themeChanged=()=>{P3D.applyTheme()};
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',themeChanged);
 new MutationObserver(themeChanged).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
-const h=(location.hash||'').slice(1);if(HASH[h])S.view=HASH[h];
-render();
+if(CLOUD){
+  API.init();$('#app').hidden=true;showBoot('Menghubungkan ke server…');
+  API.session().then(s=>{if(s&&s.user)return enterCloud(s.user.id);hideBoot();showLogin()}).catch(()=>{hideBoot();showLogin()});
+}else{
+  seed();
+  const h=(location.hash||'').slice(1);if(HASH[h]&&HASH[h]!=='employees')S.view=HASH[h];
+  render();
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,15 @@
+-- =====================================================================
+--  Universe CRM — akun karyawan
+--  Jalankan di SQL Editor SETELAH schema.sql.
+--  Format: create_employee(username, nama lengkap, peran, email, password awal)
+--  Peran: Sales, Manager, Cluster, Admin. Password minimal 8 karakter.
+--  Minta setiap karyawan mengganti password setelah login pertama
+--  (ikon kunci di sidebar).
+--
+--  Setelah ada satu Manager/Admin, karyawan berikutnya bisa ditambah dari
+--  aplikasi: menu Karyawan → Karyawan baru.
+-- =====================================================================
+
+-- Contoh (hapus tanda -- di depan baris untuk menjalankan):
+-- select public.create_employee('admin', 'Admin CRM', 'Admin', 'admin@universedigital.id', 'GantiPassword123');
+-- select public.create_employee('rina', 'Rina Kartika', 'Sales', 'rina@universedigital.id', 'GantiPassword123');
